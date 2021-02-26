@@ -1,0 +1,49 @@
+menu "Project Configuration"
+
+    config DHT22_GPIO
+        int "DHT22 GPIO"
+        default 23
+
+    config RELAY_GPIO
+        int "Relay GPIO"
+        default 22
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        default ""
+        help
+            SSID (network name) to connect to.
+
+    config WIFI_PASSWORD
+        string "WiFi Password"
+        default ""
+        help
+            WiFi password (WPA or WPA2) to use.
+
+    config ESP_WIFI_SSID
+        string "ESP WiFi SSID"
+        default "myssid"
+        help
+            SSID (network name) of AP
+
+    config ESP_WIFI_PASSWORD
+        string "ESP WiFi Password"
+        default "mypassword"
+        help
+            WiFi password (WPA or WPA2) of AP
+
+    config ESP_WIFI_CHANNEL
+        int "WiFi Channel"
+        range 1 13
+        default 1
+        help
+            WiFi channel (network channel) of AP
+
+    config ESP_MAX_STA_CONN
+        int "Maximal STA connections"
+        default 4
+        help
+            Max number of the STA connects to AP.
+
+    
+endmenu
