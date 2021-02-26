@@ -8,6 +8,26 @@ menu "Project Configuration"
         int "Relay GPIO"
         default 22
 
+    config ON_THRESHOLD
+        int "turn on threshold"
+        range 0 100
+        default 60
+        help
+            Humidity level in percent to turn on relay
+
+    config OFF_THRESHOLD
+        int "turn off threshold"
+        range 0 100
+        default 58
+        help
+            Humidity level in percent to turn off relay
+
+    config OFF_DELAY
+        int "off delay"
+        default 0
+        help
+            Delays the turn off event by OFF_DELAY seconds
+
     config WIFI_SSID
         string "WiFi SSID"
         default ""
