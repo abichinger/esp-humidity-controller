@@ -2,10 +2,11 @@
 #include "cJSON.h"
 #include "settings.h"
 #include "DHT22.h"
+#include "esp_event.h"
 
 #define BUFSIZE 10240
 
-static const char *TAG = "HC";
+static const char *TAG = "REST";
 static char buffer[BUFSIZE];
 
 static esp_err_t info_get_handler(httpd_req_t *req)
@@ -60,8 +61,8 @@ static esp_err_t settings_get_handler(httpd_req_t *req)
     cJSON *root = cJSON_CreateObject();
     settings_t *settings = get_settings();
 
-    cJSON_AddStringToObject(root, "wifi_ssid", (char *) settings->wifi_ssid);
-    cJSON_AddStringToObject(root, "wifi_pass", (char *) settings->wifi_pass);
+    cJSON_AddStringToObject(root, "wifi_ssid", settings->wifi_ssid);
+    cJSON_AddStringToObject(root, "wifi_pass", settings->wifi_pass);
     cJSON_AddNumberToObject(root, "on_threshold", settings->on_threshold);
     cJSON_AddNumberToObject(root, "off_threshold", settings->off_threshold);
     cJSON_AddNumberToObject(root, "off_delay", settings->off_delay);
@@ -82,6 +83,8 @@ static const httpd_uri_t settings_get_uri = {
 
 static esp_err_t settings_post_handler(httpd_req_t *req)
 {
+    bool wifi_settings_changed = false;
+    
     int total_len = req->content_len;
     int cur_len = 0;
     int received = 0;
@@ -103,11 +106,20 @@ static esp_err_t settings_post_handler(httpd_req_t *req)
     }
     buf[total_len] = '\0';
 
+    ESP_LOGI(TAG, "received settings: '%s'", buf);
+
     cJSON *root = cJSON_Parse(buf);
     settings_t *settings = get_settings();
 
-    strcpy((char *)(settings->wifi_ssid), cJSON_GetObjectItem(root, "wifi_ssid")->valuestring);
-    strcpy((char *)(settings->wifi_pass), cJSON_GetObjectItem(root, "wifi_pass")->valuestring);
+    cJSON *wifi_ssid = cJSON_GetObjectItem(root, "wifi_ssid");
+    cJSON *wifi_pass = cJSON_GetObjectItem(root, "wifi_pass");
+
+    if(strcmp(wifi_ssid->valuestring, settings->wifi_ssid) != 0 || strcmp(wifi_pass->valuestring, settings->wifi_pass) != 0){
+        wifi_settings_changed = true;
+    }
+
+    strcpy(settings->wifi_ssid, wifi_ssid->valuestring);
+    strcpy(settings->wifi_pass, wifi_pass->valuestring);
     settings->on_threshold = cJSON_GetObjectItem(root, "on_threshold")->valueint;
     settings->off_threshold = cJSON_GetObjectItem(root, "off_threshold")->valueint;
     settings->off_delay = cJSON_GetObjectItem(root, "off_delay")->valueint;
@@ -117,6 +129,9 @@ static esp_err_t settings_post_handler(httpd_req_t *req)
     cJSON_Delete(root);
     httpd_resp_set_type(req, "application/json");
     httpd_resp_sendstr(req, "true");
+
+    if(wifi_settings_changed) esp_event_post(SETTINGS_EVENT, SETTINGS_EVENT_WIFI_CHANGED, NULL, 0, 0);
+
     return ESP_OK;
 }
 
@@ -127,19 +142,19 @@ static const httpd_uri_t settings_post_uri = {
     .user_ctx  = NULL
 };
 
-/*static const httpd_uri_t turn_on_uri = {
-    .uri       = "/api/v1/on",
-    .method    = HTTP_POST,
-    .handler   = turn_on_post_handler,
-    .user_ctx  = NULL
-};
+// static const httpd_uri_t turn_on_uri = {
+//     .uri       = "/api/v1/on",
+//     .method    = HTTP_POST,
+//     .handler   = turn_on_post_handler,
+//     .user_ctx  = NULL
+// };
 
-static const httpd_uri_t turn_off_uri = {
-    .uri       = "/api/v1/off",
-    .method    = HTTP_POST,
-    .handler   = turn_off_post_handler,
-    .user_ctx  = NULL
-};*/
+// static const httpd_uri_t turn_off_uri = {
+//     .uri       = "/api/v1/off",
+//     .method    = HTTP_POST,
+//     .handler   = turn_off_post_handler,
+//     .user_ctx  = NULL
+// };
 
 esp_err_t start_webserver(httpd_handle_t *server)
 {

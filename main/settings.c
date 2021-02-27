@@ -11,7 +11,10 @@
 #define WIFI_SSID          CONFIG_WIFI_SSID
 #define WIFI_PASS          CONFIG_WIFI_PASSWORD
 
-static const char *TAG = "HC";
+const char *SETTINGS_EVENT = "settings_evt";
+int32_t SETTINGS_EVENT_WIFI_CHANGED = 0;
+
+static const char *TAG = "SETTINGS";
 
 static const char *STORAGE_NAMESPACE = "sto";
 static const char *SETTINGS_KEY = "settings";
