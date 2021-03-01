@@ -65,5 +65,9 @@ menu "Project Configuration"
         help
             Max number of the STA connects to AP.
 
+    config WWW_MOUNT_POINT
+        string "www mount point"
+        default "/www"
+
     
 endmenu

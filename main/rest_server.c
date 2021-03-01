@@ -3,11 +3,17 @@
 #include "settings.h"
 #include "DHT22.h"
 #include "esp_event.h"
+#include "esp_vfs.h"
+#include "esp_system.h"
 
-#define BUFSIZE 10240
+#define FILE_PATH_MAX (ESP_VFS_PATH_MAX + 128)
+#define BUFSIZE 51200
+
+#define CHECK_FILE_EXTENSION(filename, ext) (strcasecmp(&filename[strlen(filename) - strlen(ext)], ext) == 0)
 
 static const char *TAG = "REST";
-static char buffer[BUFSIZE];
+static char * buf;
+static char * cl_buf;
 
 static esp_err_t info_get_handler(httpd_req_t *req)
 {
@@ -16,7 +22,10 @@ static esp_err_t info_get_handler(httpd_req_t *req)
     esp_chip_info_t chip_info;
     esp_chip_info(&chip_info);
     cJSON_AddStringToObject(root, "version", IDF_VER);
+    cJSON_AddNumberToObject(root, "model", chip_info.model);
+    cJSON_AddNumberToObject(root, "features", chip_info.features);
     cJSON_AddNumberToObject(root, "cores", chip_info.cores);
+    cJSON_AddNumberToObject(root, "revision", chip_info.revision);
     const char *sys_info = cJSON_Print(root);
     httpd_resp_sendstr(req, sys_info);
     free((void *)sys_info);
@@ -38,7 +47,7 @@ static esp_err_t data_get_handler(httpd_req_t *req)
     
     cJSON_AddNumberToObject(root, "h", getHumidity());
     cJSON_AddNumberToObject(root, "t", getTemperature());
-    cJSON_AddBoolToObject(root, "on", true); // #TODO: replace const value
+    cJSON_AddBoolToObject(root, "on", false); // #TODO: replace const value
     cJSON_AddStringToObject(root, "wifi_mode", "ap"); // #TODO: replace const value
 
     const char *data = cJSON_Print(root);
@@ -94,7 +103,6 @@ static esp_err_t settings_post_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
 
-    char *buf = &buffer[0];
     while (cur_len < total_len) {
         received = httpd_req_recv(req, buf + cur_len, total_len);
         if (received <= 0) {
@@ -120,9 +128,9 @@ static esp_err_t settings_post_handler(httpd_req_t *req)
 
     strcpy(settings->wifi_ssid, wifi_ssid->valuestring);
     strcpy(settings->wifi_pass, wifi_pass->valuestring);
-    settings->on_threshold = cJSON_GetObjectItem(root, "on_threshold")->valueint;
-    settings->off_threshold = cJSON_GetObjectItem(root, "off_threshold")->valueint;
-    settings->off_delay = cJSON_GetObjectItem(root, "off_delay")->valueint;
+    settings->on_threshold = cJSON_GetObjectItem(root, "on_threshold")->valuedouble;
+    settings->off_threshold = cJSON_GetObjectItem(root, "off_threshold")->valuedouble;
+    settings->off_delay = cJSON_GetObjectItem(root, "off_delay")->valuedouble;
 
     save_settings(settings);
 
@@ -156,11 +164,123 @@ static const httpd_uri_t settings_post_uri = {
 //     .user_ctx  = NULL
 // };
 
+/* Set HTTP response content type according to file extension */
+static esp_err_t set_content_type_from_file(httpd_req_t *req, const char *filepath)
+{
+    const char *type = "text/plain";
+    if (CHECK_FILE_EXTENSION(filepath, ".html")) {
+        type = "text/html";
+    } else if (CHECK_FILE_EXTENSION(filepath, ".js")) {
+        type = "application/javascript";
+    } else if (CHECK_FILE_EXTENSION(filepath, ".css")) {
+        type = "text/css";
+    } else if (CHECK_FILE_EXTENSION(filepath, ".png")) {
+        type = "image/png";
+    } else if (CHECK_FILE_EXTENSION(filepath, ".ico")) {
+        type = "image/x-icon";
+    } else if (CHECK_FILE_EXTENSION(filepath, ".svg")) {
+        type = "text/xml";
+    }
+    return httpd_resp_set_type(req, type);
+}
+
+static esp_err_t set_content_length(httpd_req_t *req, FILE *fp)
+{
+    long length;
+
+    fseek(fp, 0L, SEEK_END);
+    length = ftell(fp);
+    rewind(fp);
+
+    sprintf(cl_buf, "%ld", length);
+    ESP_LOGI(TAG, "Content-Length: %ld", length);
+
+    return httpd_resp_set_hdr(req, "Content-Length", cl_buf);
+    //return ESP_OK;
+}
+
+/* Send HTTP response with the contents of the requested file */
+static esp_err_t static_handler(httpd_req_t *req)
+{
+    char filepath[FILE_PATH_MAX];
+
+    strlcpy(filepath, CONFIG_WWW_MOUNT_POINT, sizeof(filepath));
+    if (req->uri[strlen(req->uri) - 1] == '/') {
+        strlcat(filepath, "/index.html", sizeof(filepath));
+    } else {
+        strlcat(filepath, req->uri, sizeof(filepath));
+    }
+    FILE *fp = fopen(filepath, "r");
+    if (fp == NULL) {
+        ESP_LOGE(TAG, "Failed to open file : %s", filepath);
+        /* Respond with 500 Internal Server Error */
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read existing file");
+        return ESP_FAIL;
+    }
+
+    set_content_type_from_file(req, filepath);
+    set_content_length(req, fp);
+    httpd_resp_set_hdr(req, "Connection", "keep-alive");
+
+    char *chunk = buf;
+    ssize_t read_bytes;
+    do {
+        /* Read file in chunks into the buffer */
+        read_bytes = fread(chunk, 1, BUFSIZE, fp);
+        
+        if (read_bytes == 0) {
+            break;
+        } else if (read_bytes > 0) {
+            /* Send the buffer contents as HTTP response chunk */
+            if (httpd_resp_send_chunk(req, chunk, read_bytes) != ESP_OK) {
+                fclose(fp);
+                ESP_LOGE(TAG, "Failed to send file: %s", filepath);
+                /* Abort sending file */
+                httpd_resp_sendstr_chunk(req, NULL);
+                /* Respond with 500 Internal Server Error */
+                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to send file");
+                return ESP_FAIL;
+            }
+        }
+    } while (read_bytes > 0);
+    
+    if(ferror(fp) == 0){
+        ESP_LOGI(TAG, "Successfully sent file: %s", filepath);
+    }
+    else{
+        ESP_LOGE(TAG, "Failed to read file: %s", filepath);
+    }
+
+    /* Close file after sending complete */
+    fclose(fp);
+    
+    /* Respond with an empty chunk to signal HTTP response completion */
+    httpd_resp_send_chunk(req, NULL, 0);
+    return ESP_OK;
+}
+
+static const httpd_uri_t static_uri = {
+    .uri       = "/*",
+    .method    = HTTP_GET,
+    .handler   = static_handler,
+    .user_ctx  = NULL
+};
+
+
+
 esp_err_t start_webserver(httpd_handle_t *server)
 {
    esp_err_t err;
+
+   buf = calloc(1, BUFSIZE);
+   if(buf == NULL) return ESP_FAIL;
+
+   cl_buf = calloc(1, 50);
+   if(cl_buf == NULL) return ESP_FAIL;
+
    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-   config.lru_purge_enable = true;
+   // config.lru_purge_enable = true;
+   config.uri_match_fn = httpd_uri_match_wildcard;
 
    // Start the httpd server
    ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
@@ -173,6 +293,7 @@ esp_err_t start_webserver(httpd_handle_t *server)
    httpd_register_uri_handler(*server, &data_uri);
    httpd_register_uri_handler(*server, &settings_get_uri);
    httpd_register_uri_handler(*server, &settings_post_uri);
+   httpd_register_uri_handler(*server, &static_uri);
    return ESP_OK;
 }
 

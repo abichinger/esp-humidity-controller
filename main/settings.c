@@ -47,7 +47,9 @@ esp_err_t load_settings(settings_t *settings){
       ESP_LOGI(TAG, "default settings loaded");
    }
    
-   ESP_LOGI(TAG, "settings loaded\n  SSID:%s\n  ON_THRESHOLD: %d\n  OFF_THRESHOLD: %d\n  OFF_DELAY: %d\n ", settings->wifi_ssid, settings->on_threshold, settings->off_threshold, settings->off_delay);
+   ESP_LOGI(TAG, "settings loaded\n");
+   print_settings(settings);
+
    return ESP_OK;
 }
 
@@ -64,5 +66,14 @@ esp_err_t save_settings(settings_t *settings){
    if (err != ESP_OK) return err;
    
    ESP_LOGI(TAG, "settings saved %d", required_size);
+   print_settings(settings);
+
    return ESP_OK;
+}
+
+void print_settings(settings_t *settings){
+   ESP_LOGI(TAG, "ssid:%s", settings->wifi_ssid);
+   ESP_LOGI(TAG, "on_threshold:%d", settings->on_threshold);
+   ESP_LOGI(TAG, "off_threshold:%d", settings->off_threshold);
+   ESP_LOGI(TAG, "off_delay:%d", settings->off_delay);
 }

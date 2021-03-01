@@ -1,0 +1,55 @@
+.text-center {
+    text-align: center;
+}
+
+.text-white {
+    color: #fff !important;
+}
+
+.text-dark-teal {
+    color: #00897B !important;
+}
+
+.text-cyan {
+    color: #00ACC1 !important;
+}
+
+.text-red {
+    color: #E53935 !important;
+}
+
+.text-disabled {
+    color: #757575 !important;
+}
+
+$sizes: 5, 8, 10, 15, 20, 25;
+
+@each $size in $sizes {
+    .pa-#{$size} {
+        padding: $size * 1px;
+    }
+
+    .pt-#{$size} {
+        padding-top: $size * 1px;
+    }
+
+    .pb-#{$size} {
+        padding-bottom: $size * 1px;
+    }
+
+    .px-#{$size} {
+        padding-left: $size * 1px;
+        padding-right: $size * 1px;
+    }
+    .mt-#{$size} {
+        margin-top: $size * 1px;
+    }
+
+    .mb-#{$size} {
+        margin-bottom: $size * 1px;
+    }
+
+    .ma-#{$size} {
+        margin: $size * 1px;
+    }
+}
