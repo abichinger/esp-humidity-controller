@@ -5,6 +5,10 @@
 #include "esp_event.h"
 #include "esp_vfs.h"
 #include "esp_system.h"
+#include "relay.h"
+#include "esp_wifi.h"
+#include "esp_timer.h"
+#include "esp_http_client.h"
 
 #define FILE_PATH_MAX (ESP_VFS_PATH_MAX + 128)
 #define BUFSIZE 51200
@@ -42,13 +46,17 @@ static const httpd_uri_t info_uri = {
 
 static esp_err_t data_get_handler(httpd_req_t *req)
 {
+    wifi_mode_t mode;
+    esp_wifi_get_mode(&mode);
+
     httpd_resp_set_type(req, "application/json");
     cJSON *root = cJSON_CreateObject();
     
     cJSON_AddNumberToObject(root, "h", getHumidity());
     cJSON_AddNumberToObject(root, "t", getTemperature());
-    cJSON_AddBoolToObject(root, "on", false); // #TODO: replace const value
-    cJSON_AddStringToObject(root, "wifi_mode", "ap"); // #TODO: replace const value
+    cJSON_AddBoolToObject(root, "on", relay_is_on());
+    cJSON_AddNumberToObject(root, "wifi_mode", mode);
+    cJSON_AddNumberToObject(root, "uptime", esp_timer_get_time()/1000);
 
     const char *data = cJSON_Print(root);
     httpd_resp_sendstr(req, data);
@@ -150,6 +158,25 @@ static const httpd_uri_t settings_post_uri = {
     .user_ctx  = NULL
 };
 
+static esp_err_t restart_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "true");
+
+    ESP_LOGI(TAG, "restarting...");
+    vTaskDelay( 200 / portTICK_RATE_MS );
+    esp_restart();
+
+    return ESP_OK;
+}
+
+static const httpd_uri_t restart_uri = {
+    .uri       = "/api/v1/restart",
+    .method    = HTTP_POST,
+    .handler   = restart_handler,
+    .user_ctx  = NULL
+};
+
 // static const httpd_uri_t turn_on_uri = {
 //     .uri       = "/api/v1/on",
 //     .method    = HTTP_POST,
@@ -201,7 +228,7 @@ static esp_err_t set_content_length(httpd_req_t *req, FILE *fp)
 
 /* Send HTTP response with the contents of the requested file */
 static esp_err_t static_handler(httpd_req_t *req)
-{
+{   
     char filepath[FILE_PATH_MAX];
 
     strlcpy(filepath, CONFIG_WWW_MOUNT_POINT, sizeof(filepath));
@@ -214,7 +241,7 @@ static esp_err_t static_handler(httpd_req_t *req)
     if (fp == NULL) {
         ESP_LOGE(TAG, "Failed to open file : %s", filepath);
         /* Respond with 500 Internal Server Error */
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read existing file");
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open existing file");
         return ESP_FAIL;
     }
 
@@ -249,6 +276,10 @@ static esp_err_t static_handler(httpd_req_t *req)
     }
     else{
         ESP_LOGE(TAG, "Failed to read file: %s", filepath);
+        /* Abort sending file */
+        httpd_resp_sendstr_chunk(req, NULL);
+        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read file");
+        return ESP_FAIL;
     }
 
     /* Close file after sending complete */
@@ -266,34 +297,77 @@ static const httpd_uri_t static_uri = {
     .user_ctx  = NULL
 };
 
+/*static esp_err_t socket_opened_handler(httpd_handle_t hd, int sockfd){
+    ESP_LOGI(TAG, "socket opened %d", sockfd);
+    return ESP_OK;
+}
 
+static void socket_closed_handler(httpd_handle_t hd, int sockfd){
+    ESP_LOGI(TAG, "socket closed %d", sockfd);
+}*/
+
+void webserver_check(void *pvParameter){
+
+    int status;
+    esp_err_t err;
+    esp_http_client_config_t config = {
+        .url = "http://127.0.0.1/api/v1/data",
+        .timeout_ms = 5000
+    };
+    esp_http_client_handle_t client = esp_http_client_init(&config);
+
+	while(1) {
+		err = esp_http_client_perform(client);
+
+        if (err == ESP_OK) {
+            status = esp_http_client_get_status_code(client);
+            if(status == 200){
+                ESP_LOGI(TAG, "webserver check passed");
+                vTaskDelay( 30000 / portTICK_RATE_MS );
+                continue;
+            }
+
+        }
+
+        ESP_LOGE(TAG, "webserver failed");
+        esp_restart();
+	}
+}
 
 esp_err_t start_webserver(httpd_handle_t *server)
 {
-   esp_err_t err;
+    esp_err_t err;
 
-   buf = calloc(1, BUFSIZE);
-   if(buf == NULL) return ESP_FAIL;
+    buf = calloc(1, BUFSIZE);
+    if(buf == NULL) return ESP_FAIL;
 
-   cl_buf = calloc(1, 50);
-   if(cl_buf == NULL) return ESP_FAIL;
+    cl_buf = calloc(1, 50);
+    if(cl_buf == NULL) return ESP_FAIL;
 
-   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-   // config.lru_purge_enable = true;
-   config.uri_match_fn = httpd_uri_match_wildcard;
+    httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.lru_purge_enable = true;
+    config.recv_wait_timeout = 5;
+    config.send_wait_timeout = 5;
+    //config.open_fn = &socket_opened_handler;
+    //config.close_fn = &socket_closed_handler;
+    config.uri_match_fn = httpd_uri_match_wildcard;
 
-   // Start the httpd server
-   ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
-   err = httpd_start(server, &config);
-   if (err != ESP_OK) return err;
+    // Start the httpd server
+    ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
+    err = httpd_start(server, &config);
+    if (err != ESP_OK) return err;
 
-   // Set URI handlers
-   ESP_LOGI(TAG, "Registering URI handlers");
-   httpd_register_uri_handler(*server, &info_uri);
-   httpd_register_uri_handler(*server, &data_uri);
-   httpd_register_uri_handler(*server, &settings_get_uri);
-   httpd_register_uri_handler(*server, &settings_post_uri);
-   httpd_register_uri_handler(*server, &static_uri);
+    // Set URI handlers
+    ESP_LOGI(TAG, "Registering URI handlers");
+    httpd_register_uri_handler(*server, &info_uri);
+    httpd_register_uri_handler(*server, &data_uri);
+    httpd_register_uri_handler(*server, &settings_get_uri);
+    httpd_register_uri_handler(*server, &settings_post_uri);
+    httpd_register_uri_handler(*server, &static_uri);
+    httpd_register_uri_handler(*server, &restart_uri);
+
+    xTaskCreate( &webserver_check, "webserver check", 2048, NULL, 5, NULL );
+
    return ESP_OK;
 }
 

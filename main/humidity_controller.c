@@ -22,27 +22,23 @@
 #include "settings.h"
 #include "rest_server.h"
 #include "wifi.h"
-
-#define HUMIDITY_THRESHOLD 60.0
+#include "relay.h"
 
 #define DHT22_GPIO CONFIG_DHT22_GPIO
-#define RELAY_GPIO CONFIG_RELAY_GPIO
 
 static const char *TAG = "MAIN";
 
 void DHT_task(void *pvParameter){
 	setDHTgpio( DHT22_GPIO );
-	printf( "Starting DHT Task\n\n");
+   ESP_LOGI(TAG, "Starting DHT Task");
 
 	while(1) {
 	
-		printf("=== Reading DHT ===\n" );
 		int ret = readDHT();
 		
 		errorHandler(ret);
 
-		printf( "Hum %.1f\n", getHumidity() );
-		printf( "Tmp %.1f\n", getTemperature() );
+      ESP_LOGI(TAG, "Hum: %.1f, Temp: %.1f", getHumidity(), getTemperature());
 		
 		// -- wait at least 2 sec before reading again ------------
 		// The interval of whole process must be beyond 2 seconds !! 
@@ -51,26 +47,22 @@ void DHT_task(void *pvParameter){
 }
 
 void Relay_task(void *pvParameter){
-   gpio_pad_select_gpio( RELAY_GPIO );
-    /* Set the GPIO as a push/pull output */
-   gpio_set_direction(RELAY_GPIO, GPIO_MODE_OUTPUT);
+   relay_init();
 
    float humidity = 0.0;
-   bool relay_high = false;
+   settings_t *settings = get_settings();
 
    while(1) {
    
       humidity = getHumidity();
 
-      if(humidity > HUMIDITY_THRESHOLD+1 && !relay_high){
-         printf("Turning on the relay\n");
-         gpio_set_level(RELAY_GPIO, 1);
-         relay_high = true;
+      if(humidity > settings->on_threshold && !relay_is_on()){
+         ESP_LOGI(TAG, "Turning relay on");
+         relay_turn_on();
       }
-      else if(humidity < HUMIDITY_THRESHOLD-1 && relay_high){
-         printf("Turning off the relay\n");
-         gpio_set_level(RELAY_GPIO, 0);
-         relay_high = false;
+      else if(humidity < settings->off_threshold && relay_is_on()){
+         ESP_LOGI(TAG, "Turning relay off");
+         relay_turn_off();
       }
       vTaskDelay(1000 / portTICK_PERIOD_MS);
    }

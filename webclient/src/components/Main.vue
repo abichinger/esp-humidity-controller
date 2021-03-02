@@ -4,7 +4,7 @@
       <div class="md-elevation-3 pa-15 mt-10">
         <div class="md-display-3 text-center text-white" :style="{opacity: loading ? 0 : 1}">
           <md-icon class="md-size-2x text-red">thermostat</md-icon>
-          {{t.toFixed(1)}}°C
+          {{data.t.toFixed(1)}}°C
         </div>
         <div class="md-caption text-center">Temperature</div>
       </div>
@@ -13,7 +13,7 @@
       <div class="md-elevation-3 pa-15 mt-10">
         <div class="md-display-3 text-center text-white" :style="{opacity: loading ? 0 : 1}">
           <md-icon class="md-size-2x text-cyan">opacity</md-icon>
-          {{h.toFixed(1)}}%
+          {{data.h.toFixed(1)}}%
         </div>
         <div class="md-caption text-center">Humidity</div>
       </div>
@@ -21,10 +21,19 @@
     <div class="md-layout-item md-small-size-100 md-size-50">
       <div class="md-elevation-3 pa-15 mt-10">
         <div class="md-display-3 text-center text-white" :style="{opacity: loading ? 0 : 1}">
-          <md-icon class="md-size-2x">lightbulb</md-icon>
-          {{on ? 'ON' : 'OFF'}}
+          <md-icon class="md-size-2x" :class="{'text-amber': data.on}">lightbulb</md-icon>
+          {{data.on ? 'ON' : 'OFF'}}
         </div>
         <div class="md-caption text-center">State</div>
+      </div>
+    </div>
+    <div class="md-layout-item md-small-size-100 md-size-50">
+      <div class="md-elevation-3 pa-15 mt-10">
+        <div class="md-display-1 text-center text-white" :style="{opacity: loading ? 0 : 1}">
+          <md-icon class="md-size-2x" :class="{'text-amber': data.on}">history</md-icon>
+          {{uptime}}
+        </div>
+        <div class="md-caption text-center">Uptime</div>
       </div>
     </div>
     <div class="md-layout-item md-small-size-100 md-size-50">
@@ -54,16 +63,14 @@ export default {
   data(){
     return {
       loading: true,
-      t: 0, //tem,perature
-      h: 0, //humidity
-      on: false,
       chip_model: {
         1: "ESP32",
         2: "ESP32-S2",
         4: "ESP32-S3",
         5: "ESP32-C3",
       },
-      info: {}
+      info: {},
+      data: {},
     }
   },
   created(){
@@ -71,12 +78,17 @@ export default {
     this.getData()
     setInterval(this.getData, 3000)
   },
+  computed:{
+    uptime(){
+      let uptime = (typeof this.data.uptime == 'number') ? this.data.uptime : 0
+      let time = this.partition(uptime/1000, [24*60*60, 60*60, 60, 1])
+      return `${time[0]}d ${time[1]}h ${time[2]}m ${time[3]}s`
+    }
+  },
   methods: {
     getData(){
       Service.getData().then((res) => {
-        this.t = res.t
-        this.h = res.h
-        this.on = res.on
+        this.data = res
         this.loading = false
       })
     },
@@ -84,6 +96,14 @@ export default {
       Service.getInfo().then((res) => {
         this.info = res 
       })
+    },
+    partition(value, partitions){
+      let res = []
+      for(let p of partitions){
+        res.push(parseInt(value/p))
+        value = value%p
+      }
+      return res
     }
   }
 }

@@ -1,4 +1,4 @@
-idf_component_register(SRCS "wifi.c" "settings.c" "rest_server.c" "humidity_controller.c"
+idf_component_register(SRCS "relay.c" "wifi.c" "settings.c" "rest_server.c" "humidity_controller.c"
                     INCLUDE_DIRS ".")
 
 set(WEB_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../webclient")
