@@ -60,11 +60,11 @@ void Relay_task(void *pvParameter){
          ESP_LOGI(TAG, "Turning relay on");
          relay_turn_on();
       }
-      else if(humidity < settings->off_threshold && relay_is_on()){
-         ESP_LOGI(TAG, "Turning relay off");
-         relay_turn_off();
+      else if(humidity < settings->off_threshold && relay_is_on() && !relay_turn_off_timer_active()){
+         ESP_LOGI(TAG, "Turning relay off in %d seconds", settings->off_delay);
+         relay_schedule_turn_off(settings->off_delay);
       }
-      vTaskDelay(1000 / portTICK_PERIOD_MS);
+      vTaskDelay(3000 / portTICK_PERIOD_MS);
    }
 }
 

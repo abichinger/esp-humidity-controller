@@ -30,7 +30,7 @@
     <div class="md-layout-item md-small-size-100 md-size-50">
       <div class="md-elevation-3 pa-15 mt-10">
         <div class="md-display-1 text-center text-white" :style="{opacity: loading ? 0 : 1}">
-          <md-icon class="md-size-2x" :class="{'text-amber': data.on}">history</md-icon>
+          <md-icon class="md-size-2x">history</md-icon>
           {{uptime}}
         </div>
         <div class="md-caption text-center">Uptime</div>
