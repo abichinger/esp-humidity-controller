@@ -25,18 +25,40 @@
 #include "relay.h"
 
 #define DHT22_GPIO CONFIG_DHT22_GPIO
+#define DHT22_VCC CONFIG_DHT22_VCC
+#define SLED_GPIO CONFIG_SLED_GPIO
 
 static const char *TAG = "MAIN";
 
 void DHT_task(void *pvParameter){
-	setDHTgpio( DHT22_GPIO );
    ESP_LOGI(TAG, "Starting DHT Task");
+
+	setDHTgpio( DHT22_GPIO );
+   gpio_set_direction(DHT22_VCC, GPIO_MODE_OUTPUT);
+   gpio_set_level(DHT22_VCC, 1);
+   
+   uint8_t error_count = 0;
 
 	while(1) {
 	
 		int ret = readDHT();
-		
 		errorHandler(ret);
+
+      if(ret != DHT_OK){
+         error_count += 1;
+      }
+      else {
+         error_count = 0;
+      }
+
+      //power cycle DHT22
+      if(error_count >= 3){
+         ESP_LOGI(TAG, "Power cycling DHT22");
+         gpio_set_level(DHT22_VCC, 0);
+         vTaskDelay( 1000 / portTICK_RATE_MS );
+         gpio_set_level(DHT22_VCC, 1);
+         error_count = 0;
+      }
 
       ESP_LOGI(TAG, "Hum: %.1f, Temp: %.1f", getHumidity(), getTemperature());
 		
@@ -66,6 +88,34 @@ void Relay_task(void *pvParameter){
       }
       vTaskDelay(3000 / portTICK_PERIOD_MS);
    }
+}
+
+//TODO: remove when web-interface is fixed 
+void Restart_task(void *pvParameter){
+   //restart every 24 hours
+   double one_day_ms = 24*60*60*1000;
+   vTaskDelay(one_day_ms / portTICK_PERIOD_MS);
+   ESP_LOGE(TAG, "Restarting...");
+   esp_restart();
+}
+
+void Blink_task(void *pvParameter){
+
+   gpio_set_direction(SLED_GPIO, GPIO_MODE_OUTPUT);
+
+	while(1) {
+      gpio_set_level(SLED_GPIO, 0);
+      vTaskDelay( 1900 / portTICK_RATE_MS );
+      gpio_set_level(SLED_GPIO, 1);
+      vTaskDelay( 100 / portTICK_RATE_MS );
+
+      if(relay_is_on()){
+         gpio_set_level(SLED_GPIO, 0);
+         vTaskDelay( 100 / portTICK_RATE_MS );
+         gpio_set_level(SLED_GPIO, 1);
+         vTaskDelay( 100 / portTICK_RATE_MS );
+      }
+	}
 }
 
 esp_err_t init_fs(void)
@@ -101,9 +151,6 @@ esp_err_t init_fs(void)
 
 void app_main(void){
 
-   //init filesystem
-   ESP_ERROR_CHECK(init_fs());
-
    //init nvs
    esp_err_t ret = nvs_flash_init();
    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -136,4 +183,6 @@ void app_main(void){
    vTaskDelay( 1000 / portTICK_RATE_MS );
 	xTaskCreate( &DHT_task, "DHT_task", 2048, NULL, 5, NULL );
    xTaskCreate( &Relay_task, "Relay_task", 2048, NULL, 5, NULL );
+   xTaskCreate( &Restart_task, "Restart_task", 2048, NULL, 5, NULL );
+   xTaskCreate( &Blink_task, "Blink_task", 2048, NULL, 5, NULL );
 }

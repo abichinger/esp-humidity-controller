@@ -19,6 +19,22 @@ static const char *TAG = "REST";
 static char * buf;
 static char * cl_buf;
 
+static char * METRIC_FMT = "# HELP esphc_temperature temperature\n\
+# TYPE esphc_temperature gauge\n\
+esphc_temperature %-.2f\n\
+# HELP esphc_humidity humidity\n\
+# TYPE esphc_humidity gauge\n\
+esphc_humidity %-.2f\n\
+# HELP esphc_uptime uptime\n\
+# TYPE esphc_uptime gauge\n\
+esphc_uptime %lld\n\
+# HELP esphc_freeheap freeheap\n\
+# TYPE esphc_freeheap gauge\n\
+esphc_freeheap %lu\n\
+# HELP esphc_relay relay HIGH/LOW\n\
+# TYPE esphc_relay gauge\n\
+esphc_relay %u\n";
+
 static esp_err_t info_get_handler(httpd_req_t *req)
 {
     httpd_resp_set_type(req, "application/json");
@@ -57,6 +73,8 @@ static esp_err_t data_get_handler(httpd_req_t *req)
     cJSON_AddBoolToObject(root, "on", relay_is_on());
     cJSON_AddNumberToObject(root, "wifi_mode", mode);
     cJSON_AddNumberToObject(root, "uptime", esp_timer_get_time()/1000);
+    cJSON_AddNumberToObject(root, "free_heap", esp_get_free_heap_size());
+    cJSON_AddNumberToObject(root, "reset_reason", esp_reset_reason());
 
     const char *data = cJSON_Print(root);
     httpd_resp_sendstr(req, data);
@@ -69,6 +87,24 @@ static const httpd_uri_t data_uri = {
     .uri       = "/api/v1/data",
     .method    = HTTP_GET,
     .handler   = data_get_handler,
+    .user_ctx  = NULL
+};
+
+static esp_err_t metrics_get_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "text/plain");
+
+    uint8_t relay = relay_is_on() ? 1 : 0;
+    sprintf(buf, METRIC_FMT, getTemperature(), getHumidity(), esp_timer_get_time()/1000, esp_get_free_heap_size(), relay);
+
+    httpd_resp_sendstr(req, buf);
+    return ESP_OK;
+}
+
+static const httpd_uri_t metrics_uri = {
+    .uri       = "/api/v1/metrics",
+    .method    = HTTP_GET,
+    .handler   = metrics_get_handler,
     .user_ctx  = NULL
 };
 
@@ -191,112 +227,6 @@ static const httpd_uri_t restart_uri = {
 //     .user_ctx  = NULL
 // };
 
-/* Set HTTP response content type according to file extension */
-static esp_err_t set_content_type_from_file(httpd_req_t *req, const char *filepath)
-{
-    const char *type = "text/plain";
-    if (CHECK_FILE_EXTENSION(filepath, ".html")) {
-        type = "text/html";
-    } else if (CHECK_FILE_EXTENSION(filepath, ".js")) {
-        type = "application/javascript";
-    } else if (CHECK_FILE_EXTENSION(filepath, ".css")) {
-        type = "text/css";
-    } else if (CHECK_FILE_EXTENSION(filepath, ".png")) {
-        type = "image/png";
-    } else if (CHECK_FILE_EXTENSION(filepath, ".ico")) {
-        type = "image/x-icon";
-    } else if (CHECK_FILE_EXTENSION(filepath, ".svg")) {
-        type = "text/xml";
-    }
-    return httpd_resp_set_type(req, type);
-}
-
-static esp_err_t set_content_length(httpd_req_t *req, FILE *fp)
-{
-    long length;
-
-    fseek(fp, 0L, SEEK_END);
-    length = ftell(fp);
-    rewind(fp);
-
-    sprintf(cl_buf, "%ld", length);
-    ESP_LOGI(TAG, "Content-Length: %ld", length);
-
-    return httpd_resp_set_hdr(req, "Content-Length", cl_buf);
-    //return ESP_OK;
-}
-
-/* Send HTTP response with the contents of the requested file */
-static esp_err_t static_handler(httpd_req_t *req)
-{   
-    char filepath[FILE_PATH_MAX];
-
-    strlcpy(filepath, CONFIG_WWW_MOUNT_POINT, sizeof(filepath));
-    if (req->uri[strlen(req->uri) - 1] == '/') {
-        strlcat(filepath, "/index.html", sizeof(filepath));
-    } else {
-        strlcat(filepath, req->uri, sizeof(filepath));
-    }
-    FILE *fp = fopen(filepath, "r");
-    if (fp == NULL) {
-        ESP_LOGE(TAG, "Failed to open file : %s", filepath);
-        /* Respond with 500 Internal Server Error */
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to open existing file");
-        return ESP_FAIL;
-    }
-
-    set_content_type_from_file(req, filepath);
-    set_content_length(req, fp);
-    httpd_resp_set_hdr(req, "Connection", "keep-alive");
-
-    char *chunk = buf;
-    ssize_t read_bytes;
-    do {
-        /* Read file in chunks into the buffer */
-        read_bytes = fread(chunk, 1, BUFSIZE, fp);
-        
-        if (read_bytes == 0) {
-            break;
-        } else if (read_bytes > 0) {
-            /* Send the buffer contents as HTTP response chunk */
-            if (httpd_resp_send_chunk(req, chunk, read_bytes) != ESP_OK) {
-                fclose(fp);
-                ESP_LOGE(TAG, "Failed to send file: %s", filepath);
-                /* Abort sending file */
-                httpd_resp_sendstr_chunk(req, NULL);
-                /* Respond with 500 Internal Server Error */
-                httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to send file");
-                return ESP_FAIL;
-            }
-        }
-    } while (read_bytes > 0);
-    
-    if(ferror(fp) == 0){
-        ESP_LOGI(TAG, "Successfully sent file: %s", filepath);
-    }
-    else{
-        ESP_LOGE(TAG, "Failed to read file: %s", filepath);
-        /* Abort sending file */
-        httpd_resp_sendstr_chunk(req, NULL);
-        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to read file");
-        return ESP_FAIL;
-    }
-
-    /* Close file after sending complete */
-    fclose(fp);
-    
-    /* Respond with an empty chunk to signal HTTP response completion */
-    httpd_resp_send_chunk(req, NULL, 0);
-    return ESP_OK;
-}
-
-static const httpd_uri_t static_uri = {
-    .uri       = "/*",
-    .method    = HTTP_GET,
-    .handler   = static_handler,
-    .user_ctx  = NULL
-};
-
 /*static esp_err_t socket_opened_handler(httpd_handle_t hd, int sockfd){
     ESP_LOGI(TAG, "socket opened %d", sockfd);
     return ESP_OK;
@@ -361,9 +291,9 @@ esp_err_t start_webserver(httpd_handle_t *server)
     ESP_LOGI(TAG, "Registering URI handlers");
     httpd_register_uri_handler(*server, &info_uri);
     httpd_register_uri_handler(*server, &data_uri);
+    httpd_register_uri_handler(*server, &metrics_uri);
     httpd_register_uri_handler(*server, &settings_get_uri);
     httpd_register_uri_handler(*server, &settings_post_uri);
-    httpd_register_uri_handler(*server, &static_uri);
     httpd_register_uri_handler(*server, &restart_uri);
 
     xTaskCreate( &webserver_check, "webserver check", 2048, NULL, 5, NULL );

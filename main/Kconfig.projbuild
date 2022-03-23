@@ -4,9 +4,17 @@ menu "Project Configuration"
         int "DHT22 GPIO"
         default 23
 
+    config DHT22_VCC
+        int "DHT22 VCC"
+        default 26
+
     config RELAY_GPIO
         int "Relay GPIO"
         default 22
+
+    config SLED_GPIO
+        int "Status LED GPIO"
+        default 2
 
     config ON_THRESHOLD
         int "turn on threshold"

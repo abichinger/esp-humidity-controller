@@ -27,6 +27,7 @@ bool relay_turn_off_timer_active(void){
 void relay_init(void){
     gpio_pad_select_gpio( RELAY_GPIO );
     gpio_set_direction(RELAY_GPIO, GPIO_MODE_OUTPUT);
+    relay_turn_off();
 
     turn_off_timer = xTimerCreate("TURN_OFF_TIMER", 1, pdFALSE, 0, turn_off_timer_callback);
 }
