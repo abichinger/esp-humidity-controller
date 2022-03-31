@@ -41,6 +41,22 @@ class Service {
         return await res.json()
     }
 
+    async turnOn(){
+        let res = await ky.post('api/v1/on')
+        if(!res.ok){
+            throw res
+        }
+        return await res.json()
+    }
+
+    async turnOff(){
+        let res = await ky.post('api/v1/off')
+        if(!res.ok){
+            throw res
+        }
+        return await res.json()
+    }
+
 }
 
 export default new Service()

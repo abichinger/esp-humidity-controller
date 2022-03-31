@@ -15,6 +15,10 @@ static void turn_off_timer_callback(TimerHandle_t timer){
 }
 
 void relay_schedule_turn_off(uint32_t seconds){
+    if(seconds <= 0){
+        return relay_turn_off();
+    }
+
     xTimerStop(turn_off_timer, 0);
     xTimerChangePeriod(turn_off_timer, (seconds*1000)/portTICK_RATE_MS, 0);
     xTimerStart(turn_off_timer, 0);

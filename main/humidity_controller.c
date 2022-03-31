@@ -75,6 +75,11 @@ void Relay_task(void *pvParameter){
    settings_t *settings = get_settings();
 
    while(1) {
+
+      if(settings->mode == Manual) {
+         vTaskDelay(3000 / portTICK_PERIOD_MS);
+         continue;
+      }
    
       humidity = getHumidity();
 

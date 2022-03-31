@@ -119,6 +119,7 @@ static esp_err_t settings_get_handler(httpd_req_t *req)
     cJSON_AddNumberToObject(root, "on_threshold", settings->on_threshold);
     cJSON_AddNumberToObject(root, "off_threshold", settings->off_threshold);
     cJSON_AddNumberToObject(root, "off_delay", settings->off_delay);
+    cJSON_AddNumberToObject(root, "mode", settings->mode);
 
     const char *settings_json = cJSON_Print(root);
     httpd_resp_sendstr(req, settings_json);
@@ -175,8 +176,9 @@ static esp_err_t settings_post_handler(httpd_req_t *req)
     settings->on_threshold = cJSON_GetObjectItem(root, "on_threshold")->valuedouble;
     settings->off_threshold = cJSON_GetObjectItem(root, "off_threshold")->valuedouble;
     settings->off_delay = cJSON_GetObjectItem(root, "off_delay")->valuedouble;
+    settings->mode = cJSON_GetObjectItem(root, "mode")->valuedouble;
 
-    save_settings(settings);
+    ESP_ERROR_CHECK(save_settings(settings));
 
     cJSON_Delete(root);
     httpd_resp_set_type(req, "application/json");
@@ -213,19 +215,46 @@ static const httpd_uri_t restart_uri = {
     .user_ctx  = NULL
 };
 
-// static const httpd_uri_t turn_on_uri = {
-//     .uri       = "/api/v1/on",
-//     .method    = HTTP_POST,
-//     .handler   = turn_on_post_handler,
-//     .user_ctx  = NULL
-// };
+static esp_err_t turn_on_post_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "true");
 
-// static const httpd_uri_t turn_off_uri = {
-//     .uri       = "/api/v1/off",
-//     .method    = HTTP_POST,
-//     .handler   = turn_off_post_handler,
-//     .user_ctx  = NULL
-// };
+    settings_t *settings = get_settings();
+    settings->mode = Manual;
+    ESP_ERROR_CHECK(save_settings(settings));
+    relay_turn_on();
+
+    return ESP_OK;
+}
+
+static const httpd_uri_t turn_on_uri = {
+    .uri       = "/api/v1/on",
+    .method    = HTTP_POST,
+    .handler   = turn_on_post_handler,
+    .user_ctx  = NULL
+};
+
+static esp_err_t turn_off_post_handler(httpd_req_t *req)
+{
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_sendstr(req, "true");
+
+    settings_t *settings = get_settings();
+    settings->mode = Manual;
+    ESP_ERROR_CHECK(save_settings(settings));
+    relay_turn_off();
+
+    return ESP_OK;
+}
+
+static const httpd_uri_t turn_off_uri = {
+    .uri       = "/api/v1/off",
+    .method    = HTTP_POST,
+    .handler   = turn_off_post_handler,
+    .user_ctx  = NULL
+};
+
 
 /*static esp_err_t socket_opened_handler(httpd_handle_t hd, int sockfd){
     ESP_LOGI(TAG, "socket opened %d", sockfd);
@@ -295,6 +324,8 @@ esp_err_t start_webserver(httpd_handle_t *server)
     httpd_register_uri_handler(*server, &settings_get_uri);
     httpd_register_uri_handler(*server, &settings_post_uri);
     httpd_register_uri_handler(*server, &restart_uri);
+    httpd_register_uri_handler(*server, &turn_off_uri);
+    httpd_register_uri_handler(*server, &turn_on_uri);
 
     xTaskCreate( &webserver_check, "webserver check", 2048, NULL, 5, NULL );
 

@@ -24,6 +24,16 @@
       <label>Password (WPA2)</label>
       <md-input v-model="s.wifi_pass" type="password"></md-input>
     </md-field>
+
+    <md-divider/>
+    <md-subheader class="md-primary">More</md-subheader>
+    <md-field>
+      <label for="mode">Mode</label>
+      <md-select v-model="s.mode" name="mode" id="mode">
+        <md-option :value="0">Automatic</md-option>
+        <md-option :value="1">Manual</md-option>
+      </md-select>
+    </md-field>
   </div>
 </template>
 

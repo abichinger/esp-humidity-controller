@@ -24,7 +24,8 @@ settings_t settings = {
    .wifi_pass = WIFI_PASS,
    .on_threshold = ON_THRESHOLD,
    .off_threshold = OFF_THRESHOLD,
-   .off_delay = OFF_DELAY
+   .off_delay = OFF_DELAY,
+   .mode = Automatic
 };
 
 settings_t * get_settings(void){
@@ -76,4 +77,5 @@ void print_settings(settings_t *settings){
    ESP_LOGI(TAG, "on_threshold:%d", settings->on_threshold);
    ESP_LOGI(TAG, "off_threshold:%d", settings->off_threshold);
    ESP_LOGI(TAG, "off_delay:%d", settings->off_delay);
+   ESP_LOGI(TAG, "mode:%d", settings->mode);
 }

@@ -29,6 +29,15 @@
     </div>
     <div class="md-layout-item md-small-size-100 md-size-50">
       <div class="md-elevation-3 pa-15 mt-10">
+        <div class="md-display-3 text-center text-white" :style="{opacity: loading ? 0 : 1}">
+          <md-icon class="md-size-2x">power</md-icon>
+          <md-switch v-model="switchState" @change="toggleState"></md-switch>
+        </div>
+        <div class="md-caption text-center">ON/OFF Switch</div>
+      </div>
+    </div>
+    <div class="md-layout-item md-small-size-100 md-size-50">
+      <div class="md-elevation-3 pa-15 mt-10">
         <div class="md-display-1 text-center text-white" :style="{opacity: loading ? 0 : 1}">
           <md-icon class="md-size-2x">history</md-icon>
           {{uptime}}
@@ -71,12 +80,13 @@ export default {
       },
       info: {},
       data: {},
+      switchState: false,
     }
   },
   created(){
     this.getInfo()
     this.getData()
-    setInterval(this.getData, 3000)
+    setInterval(this.getData, 2000)
   },
   computed:{
     uptime(){
@@ -89,6 +99,7 @@ export default {
     getData(){
       Service.getData().then((res) => {
         this.data = res
+        this.switchState = this.data.on == 1
         this.loading = false
       })
     },
@@ -104,6 +115,15 @@ export default {
         value = value%p
       }
       return res
+    },
+    toggleState(){
+      console.log(this.switchState)
+      if(this.switchState == true) {
+        Service.turnOn().then(() => {})
+      }
+      else {
+        Service.turnOff().then(() => {})
+      }
     }
   }
 }
